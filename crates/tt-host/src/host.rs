@@ -458,6 +458,7 @@ pub fn run_capture(
     } = *opts;
     use std::any::Any;
 
+    let boot = std::time::Instant::now();
     let backends = wgpu::Backends::PRIMARY;
     let instance = create_wgpu_instance(backends, wgpu::BackendOptions::default(), None);
     let (adapter, device, queue) = futures::executor::block_on(request_adapter_and_device(
@@ -475,9 +476,22 @@ pub fn run_capture(
 
     let navigator = BundleNavigator::new(AppBundle::open(bundle.root())?)?;
     let pending = navigator.pending();
+    tracing::info!(
+        ms = boot.elapsed().as_millis(),
+        "native boot: renderer ready"
+    );
     let swf = bundle.read(boot_movie)?;
+    tracing::info!(
+        ms = boot.elapsed().as_millis(),
+        bytes = swf.len(),
+        "native boot: boot movie read+decrypted"
+    );
     let movie = SwfMovie::from_data(&swf, navigator.url_for(boot_movie), None, None)
         .map_err(|e| anyhow!("parse SWF: {e}"))?;
+    tracing::info!(
+        ms = boot.elapsed().as_millis(),
+        "native boot: boot movie parsed"
+    );
 
     let outbox: tt_bridge::Outbox = Default::default();
     let player = PlayerBuilder::new()
@@ -498,6 +512,7 @@ pub fn run_capture(
         .with_letterbox(Letterbox::On)
         .with_autoplay(true)
         .build();
+    tracing::info!(ms = boot.elapsed().as_millis(), "native boot: player ready");
 
     for frame in 0..frames {
         if frame % 200 == 0 {

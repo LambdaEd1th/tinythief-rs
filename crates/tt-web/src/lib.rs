@@ -101,12 +101,14 @@ impl TinyThiefHost {
         let always_render = always_render.unwrap_or(false);
         console_error_panic_hook::set_once();
 
+        let boot = web_time::Instant::now();
         canvas.set_width(STAGE_WIDTH);
         canvas.set_height(STAGE_HEIGHT);
 
         let renderer = WgpuRenderBackend::for_canvas(canvas, false)
             .await
             .map_err(|e| JsValue::from_str(&format!("webgl renderer: {e}")))?;
+        tracing::info!(ms = boot.elapsed().as_millis(), "boot: renderer ready");
 
         let navigator = WebNavigator::new(base_url);
 
@@ -123,8 +125,10 @@ impl TinyThiefHost {
             .load_movie("TinyThief.swf")
             .await
             .map_err(|e| JsValue::from_str(&format!("load TinyThief.swf: {e}")))?;
+        tracing::info!(ms = boot.elapsed().as_millis(), "boot: boot movie loaded");
         let movie = SwfMovie::from_data(&swf, url, None, None)
             .map_err(|e| JsValue::from_str(&format!("parse SWF: {e}")))?;
+        tracing::info!(ms = boot.elapsed().as_millis(), "boot: boot movie parsed");
         tracing::info!(
             width = movie.width().to_pixels(),
             height = movie.height().to_pixels(),
@@ -133,6 +137,7 @@ impl TinyThiefHost {
 
         // Prefer IndexedDB; fall back to localStorage (older builds still migrate
         // their saves into IndexedDB when it is available).
+        let storage_started = web_time::Instant::now();
         let storage: Option<Box<dyn ruffle_core::backend::storage::StorageBackend>> =
             match IdbStorage::open().await {
                 Ok(idb) => Some(Box::new(idb)),
@@ -173,6 +178,10 @@ impl TinyThiefHost {
             .with_quality(quality)
             .with_autoplay(true);
 
+        tracing::info!(
+            ms = storage_started.elapsed().as_millis(),
+            "boot: storage ready"
+        );
         if let Some(storage) = storage {
             builder = builder.with_storage(storage);
         }
@@ -189,7 +198,7 @@ impl TinyThiefHost {
                 scale_factor: 1.0,
             });
         }
-        tracing::info!("player ready");
+        tracing::info!(ms = boot.elapsed().as_millis(), "boot: player ready");
 
         let host = TinyThiefHost {
             player,

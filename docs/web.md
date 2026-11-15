@@ -99,6 +99,25 @@ AFTER2 {"state":"running","time":5.48,"peak":0.0763}   ← 手势后创建 conte
 顺带说明：控制台里的 `Failed to parse loader URL when extracting query parameters`
 是 Ruffle 对相对 URL 的既有告警（与音频无关）。
 
+## 加载时间
+
+web 比 native 慢的部分几乎全是**网络传输**，不是解密或渲染：
+
+| 阶段 | 冷启动（Pages） | 热启动（HTTP 缓存） |
+|---|---|---|
+| HTML/JS | ~0.3 s | ~0.03 s |
+| wasm（gzip 3.6 MB / 原始 9.2 MB） | 0.35 s | 0.02 s |
+| 启动 SWF（2.0 MB） | 0.19 s | 0.002 s |
+| host 初始化（WebGL + 解密 + 解析 + IndexedDB） | ~0.2 s | ~0.2 s |
+| 游戏内开屏动画（24 fps） | ~4.5 s | ~4.5 s |
+
+native 侧同一阶段实测：renderer 39 ms、启动 SWF 读取+解密 28 ms、解析 9 ms、
+player ready 176 ms——所以宿主初始化只比 web 快 ~30 ms，剩下全是下载时间。
+
+优化：页面会以低优先级在后台预取稍后才用的资源（splash/menu/theme 等约 3.6 MB），
+把下载藏进开屏动画里；`?prefetch=0` 或浏览器 Save-Data 时关闭。
+5 Mbps 限速实测：菜单就绪从 29.8 s 降到 27.7 s。
+
 ## 性能
 
 ### 测量（Chrome headless + SwiftShader 软件 WebGL，教学关，12 秒窗口）

@@ -1,5 +1,47 @@
 // Trunk injects the generated wasm-bindgen module and exposes it as
 // `window.wasmBindings` once the module has been initialised.
+// Warm the HTTP cache for the boot assets. The game asks for these while the
+// logo animation plays; fetching them in parallel (instead of serially when the
+// game requests each one) removes most of the "slower than native" gap on slow
+// connections. `?prefetch=0` or Save-Data disables it.
+const ASSET_BASE = new URLSearchParams(location.search).get("assets") || "assets/";
+// Only assets the game requests *later* (during/after the logo animation).
+// Early assets (logosState, commonGamePlay, levelTool) are requested by the
+// game immediately, so prefetching them would only compete for bandwidth.
+const PREFETCH = [
+  "config/sounds/Fx_config.xml",
+  "config/sounds/Animations_config.xml",
+  "swf/splashScreen.swf",
+  "swf/windowGift.swf",
+  "swf/menu.swf",
+  "swf/chest.swf",
+  "sounds/multipleLevels/music/AssetMusic_Theme.mp3",
+];
+const prefetched = new Set();
+function prefetch(path) {
+  if (prefetched.has(path)) return;
+  prefetched.add(path);
+  // `priority: low` (Chromium) keeps prefetches from starving the boot path;
+  // other engines ignore the option.
+  fetch(ASSET_BASE + path, { cache: "default", priority: "low" }).catch(() => {});
+}
+const saveData = navigator.connection && navigator.connection.saveData;
+const prefetchEnabled = !saveData && new URLSearchParams(location.search).get("prefetch") !== "0";
+if (prefetchEnabled) {
+  prefetch("TinyThief.swf");
+}
+
+// Network marks for profiling (read via `__ttMarks`); helps compare cold loads.
+window.__ttMarks = {};
+try {
+  new PerformanceObserver((list) => {
+    for (const e of list.getEntries()) {
+      const name = e.name.split("/").pop();
+      window.__ttMarks[name] = Math.round(e.responseEnd);
+    }
+  }).observe({ type: "resource", buffered: true });
+} catch (_) {}
+
 function waitForBindings() {
   if (window.wasmBindings) {
     return Promise.resolve(window.wasmBindings);
@@ -35,6 +77,9 @@ async function main() {
   const frameRate = params.get("frameRate") ? Number(params.get("frameRate")) : null;
   const mute = params.get("mute") === "1";
   const host = await bindings.TinyThiefHost.create(canvas, assets, quality, alwaysRender, frameRate, mute);
+  if (prefetchEnabled) {
+    for (const path of PREFETCH) prefetch(path);
+  }
   loading.remove();
 
   // `?warmup=N` advances N frames before the first paint (used for screenshots

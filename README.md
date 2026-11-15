@@ -96,6 +96,7 @@ Web query parameters:
 | `?quality=low\|medium\|high` | Rendering quality (`low` is ~40% cheaper on CPU) |
 | `?frameRate=N` | Override the SWF frame rate — this is a speed multiplier, not a high-FPS mode |
 | `?assets=<base-url>` | Load assets from elsewhere (CORS required) |
+| `?prefetch=0` | Disable background prefetching of boot assets |
 | `?mute=1` | Disable audio (`NullAudioBackend`) |
 | `?warmup=N` | Advance N frames before the first paint (screenshots/smoke tests) |
 | `?alwaysRender=1` | Disable render-on-demand (profiling only) |
@@ -165,6 +166,28 @@ scripts/        acceptance test, web build, asset preparation, web smoke test
 | Multi-touch gestures | ❌ Ruffle has no touch/gesture events | ❌ |
 
 ![Web build — tutorial level](docs/images/web_gameplay.png)
+
+## Load time
+
+The browser build has to download what the native build reads from disk. Measured
+cold/warm boot on the live Pages deployment (Chrome, fast connection):
+
+| Phase | Cold | Warm (HTTP cache) |
+|---|---|---|
+| HTML/JS response | ~0.3 s | ~0.03 s |
+| wasm download (3.6 MB gzip / 9.2 MB raw) | 0.35 s | 0.02 s |
+| boot movie (2.0 MB) | 0.19 s | 0.002 s |
+| host init (renderer + decrypt + parse + IndexedDB) | ~0.2 s | ~0.2 s |
+| in-game logo animation before the menu | ~4.5 s | ~4.5 s |
+
+The native host reaches the same state in ~0.18 s of host init plus the same
+~4.5 s logo animation, so the extra time on the web is network transfer and
+wasm compilation, not slower rendering or decryption.
+
+To hide the network behind the logo animation, the web page prefetches the
+assets the game will ask for later (menu/splash/theme, ~3.6 MB) in the
+background with low fetch priority; `?prefetch=0` or Save-Data disables it.
+Under a simulated 5 Mbps link this moved "menu ready" from 29.8 s to 27.7 s.
 
 ## Performance
 
