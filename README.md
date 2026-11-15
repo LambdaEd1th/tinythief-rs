@@ -254,12 +254,21 @@ The web smoke test drives a real-time headless Chrome via CDP (Chrome's
 |---|---|---|
 | `ci.yml` | push to `main`, PRs | `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace`, wasm check |
 | `pages.yml` | push to `main` | builds the wasm bundle and deploys it to GitHub Pages |
-| `release.yml` | tag `v*` | builds macOS arm64, Windows/Linux arm64 + x86_64 binaries and publishes a GitHub Release |
+| `release.yml` | tag `v*` | builds macOS arm64, Windows/Linux arm64 + x86_64 binaries plus a self-contained web bundle, and publishes a GitHub Release |
+
+Each GitHub Release contains five self-contained native packages
+(`tinythief-<target>.tar.gz`, assets included) and `tinythief-web.tar.gz`, a
+static web build that works from any subdirectory:
+
+```bash
+tar xzf tinythief-web.tar.gz
+cd dist && python3 -m http.server 8080   # http://127.0.0.1:8080/
+```
 
 Create a release with:
 
 ```bash
-git tag v0.1.1 && git push origin v0.1.1
+git tag v0.4.0 && git push origin v0.4.0
 ```
 
 ## Known limitations
