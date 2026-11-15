@@ -15,7 +15,6 @@ function waitForBindings() {
 
 const canvas = document.getElementById("tt");
 const loading = document.getElementById("loading");
-const status = document.getElementById("status");
 
 /** Map a browser event to canvas (stage) coordinates. */
 function stageCoords(event) {
@@ -36,7 +35,6 @@ async function main() {
   const frameRate = params.get("frameRate") ? Number(params.get("frameRate")) : null;
   const host = await bindings.TinyThiefHost.create(canvas, assets, quality, alwaysRender, frameRate);
   loading.remove();
-  status.textContent = "Click / tap to play";
 
   // `?warmup=N` advances N frames before the first paint (used for screenshots
   // and smoke tests, mirrors the native host's --frames).
