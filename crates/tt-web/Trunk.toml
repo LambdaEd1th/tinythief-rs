@@ -1,0 +1,7 @@
+[build]
+target = "index.html"
+dist = "dist"
+# Override for GitHub Pages project sites:  trunk build --public-url /<repo>/
+[serve]
+addresses = ["127.0.0.1"]
+port = 8080

@@ -1,0 +1,30 @@
+[package]
+name = "tt-host"
+description = "Tiny Thief cross-platform host (Rust/wgpu + Ruffle core)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tt-assets.workspace = true
+tt-platform.workspace = true
+tt-bridge.workspace = true
+
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+ruffle_core.workspace = true
+ruffle_render.workspace = true
+ruffle_render_wgpu.workspace = true
+ruffle_frontend_utils.workspace = true
+
+winit = "0.30.13"
+futures = "0.3"
+url = "2"
+encoding_rs = "0.8"
+async-channel = "2"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[dev-dependencies]
+flash-lso.workspace = true

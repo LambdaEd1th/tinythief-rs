@@ -1,0 +1,12 @@
+[package]
+name = "tt-platform"
+description = "Platform service abstraction behind Tiny Thief's native extension interfaces."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tracing.workspace = true
+
+[target.'cfg(target_family = "wasm")'.dependencies.js-sys]
+version = "0.3"

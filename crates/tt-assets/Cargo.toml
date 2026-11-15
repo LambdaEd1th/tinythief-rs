@@ -1,0 +1,14 @@
+[package]
+name = "tt-assets"
+description = "Tiny Thief (iOS) content provider: transparent AES-256-CBC/PKCS7 decryption of the app bundle."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+aes.workspace = true
+cbc.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+flate2 = "1"

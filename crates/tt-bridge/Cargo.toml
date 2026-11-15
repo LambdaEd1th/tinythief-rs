@@ -1,0 +1,11 @@
+[package]
+name = "tt-bridge"
+description = "ExternalInterface bridge for Tiny Thief: 4 native interfaces + free in-app purchases."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tt-platform.workspace = true
+tracing.workspace = true
+ruffle_core.workspace = true

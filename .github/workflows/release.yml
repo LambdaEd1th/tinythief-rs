@@ -1,0 +1,114 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  native:
+    name: native (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: tinythief-linux-x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: tinythief-windows-x86_64
+          - os: macos-14
+            target: aarch64-apple-darwin
+            name: tinythief-macos-aarch64
+          - os: macos-14
+            target: x86_64-apple-darwin
+            name: tinythief-macos-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libxkbcommon-dev libwayland-dev pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build native host
+        run: cargo build --release -p tt-host --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin=tt-host
+          [ "${{ runner.os }}" = "Windows" ] && bin=tt-host.exe
+          mkdir -p bundle
+          cp "target/${{ matrix.target }}/release/$bin" bundle/
+          cp README.md NOTICE.md LICENSE-MIT LICENSE-APACHE bundle/
+          tar -czf "${{ matrix.name }}.tar.gz" -C bundle .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.name }}.tar.gz
+
+  web:
+    name: web (wasm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+
+      - name: Build web bundle
+        run: |
+          cd crates/tt-web
+          trunk build --release
+
+      - name: Package
+        shell: bash
+        run: tar -czf tinythief-web.tar.gz -C crates/tt-web dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tinythief-web
+          path: tinythief-web.tar.gz
+
+  release:
+    name: publish
+    needs: [native, web]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "tinythief-rs ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            artifacts/*.tar.gz

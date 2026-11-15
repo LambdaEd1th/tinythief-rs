@@ -1,0 +1,7 @@
+/target
+/saves
+/state
+/build
+/crates/tt-web/dist
+/tools/bin
+.DS_Store
