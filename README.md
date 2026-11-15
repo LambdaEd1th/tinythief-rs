@@ -221,7 +221,7 @@ The web smoke test drives a real-time headless Chrome via CDP (Chrome's
 |---|---|---|
 | `ci.yml` | push to `main`, PRs | `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace`, wasm check |
 | `pages.yml` | push to `main` | builds the wasm bundle and deploys it to GitHub Pages |
-| `release.yml` | tag `v*` | builds Linux/Windows/macOS (arm64 + x86_64) binaries and a web bundle, publishes a GitHub Release |
+| `release.yml` | tag `v*` | builds macOS arm64, Windows/Linux arm64 + x86_64 binaries and publishes a GitHub Release |
 
 Create a release with:
 
