@@ -72,15 +72,32 @@ Web 端用 `crates/tt-web/src/audio.rs`（移植自 Ruffle `web/src/audio.rs`）
 
 - 双 `AudioBufferSourceNode` 轮转，`onended` 时重新混音并排期；自适应缓冲
   （1024–16384 帧）沿用上游逻辑；
-- 浏览器要求用户手势后才能出声：`main.js` 在第一次 `pointerdown`/`keydown`
-  时调用 `host.resume_audio()`（`AudioContext.resume()`），切回标签页时也会 resume；
-- 首次点击前 `AudioContext.state === "suspended"`，之后变 `"running"`；
+- **懒初始化**：`AudioContext` 不在启动时创建，而是在第一次 `pointerdown`/`keydown`
+  时由 `host.resume_audio()` → `Player::unlock_audio()` → 后端 `unlock()` 同步创建。
+  Chrome 允许"先创建、后 resume"，但 **Safari 只允许在手势处理器里创建的
+  AudioContext 播放**，所以这是 Safari 能出声的关键；
+- 若 `new AudioContext({sampleRate: 44100})` 不被支持（旧 Safari），自动退回默认采样率；
+  混音缓冲始终以 44.1 kHz 创建，由浏览器负责重采样到设备率；
+- 写回声道用 `getChannelData`（通过 `Reflect` 拿活的 `Float32Array`）而不是
+  `copyToChannel`，兼容旧 WebKit；
+- 首次点击前 `AudioContext.state === "not-started"`，之后变 `"running"`；
 - 调试钩子：`__ttAudio()` 返回 `{state, time, peak}`，`peak` 是上次调用以来
   混音缓冲的最大绝对值（0 表示静音），可用于无头验证；
 - `?mute=1` 可切回 `NullAudioBackend`。
 
 实测（headless Chrome + SwiftShader，教学关）：开音频 58.1 fps / 静音 56.5 fps，
 在噪声范围内；`peak` 在菜单/关卡里均为非零，说明确实在混音。
+
+Safari 路径用 Playwright WebKit 27.2（UA：`Version/27.2 Safari/605.1.15`）验证：
+
+```
+BEFORE {"state":"not-started","time":0,"peak":0}
+AFTER1 {"state":"running","time":2.98,"peak":0.0227}
+AFTER2 {"state":"running","time":5.48,"peak":0.0763}   ← 手势后创建 context 并出声
+```
+
+顺带说明：控制台里的 `Failed to parse loader URL when extracting query parameters`
+是 Ruffle 对相对 URL 的既有告警（与音频无关）。
 
 ## 性能
 

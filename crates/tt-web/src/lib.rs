@@ -32,7 +32,7 @@ use tt_bridge::Bridge;
 
 use crate::locale::WebLocale;
 
-use crate::audio::WebAudioBackend;
+use crate::audio::{AudioHandle, WebAudioBackend};
 use crate::idb::IdbStorage;
 use crate::navigator::WebNavigator;
 use crate::storage::LocalStorageBackend;
@@ -72,7 +72,7 @@ fn log_level_param(search: &str) -> Option<&str> {
 #[wasm_bindgen]
 pub struct TinyThiefHost {
     player: Arc<Mutex<Player>>,
-    audio_context: Option<web_sys::AudioContext>,
+    audio_handle: Option<AudioHandle>,
     outbox: tt_bridge::Outbox,
     paused: bool,
     started: bool,
@@ -112,13 +112,12 @@ impl TinyThiefHost {
 
         // Browsers create the context suspended; JS calls `resume_audio()` on the
         // first pointer/key event to satisfy the autoplay policy.
-        let (audio_backend, audio_context) = if mute {
+        let (audio_backend, audio_handle) = if mute {
             (None, None)
         } else {
-            let backend = WebAudioBackend::new()
-                .map_err(|e| JsValue::from_str(&format!("webaudio: {e:?}")))?;
-            let context = backend.audio_context().clone();
-            (Some(backend), Some(context))
+            let backend = WebAudioBackend::new();
+            let handle = backend.handle();
+            (Some(backend), Some(handle))
         };
         let (swf, url) = navigator
             .load_movie("TinyThief.swf")
@@ -194,7 +193,7 @@ impl TinyThiefHost {
 
         let host = TinyThiefHost {
             player,
-            audio_context,
+            audio_handle,
             outbox,
             paused: false,
             started: false,
@@ -240,29 +239,29 @@ impl TinyThiefHost {
         self.started
     }
 
-    /// Resume the `AudioContext` after a user gesture (autoplay policy).
-    pub fn resume_audio(&self) {
-        if let Some(ctx) = &self.audio_context {
-            match ctx.resume() {
-                Ok(_) => tracing::info!("audio context resumed"),
-                Err(e) => tracing::warn!("audio resume failed: {e:?}"),
-            }
-        }
+    /// Start/resume audio after a user gesture.
+    ///
+    /// Safari only allows an `AudioContext` that was created inside the gesture
+    /// handler to play, so the backend creates the context here rather than at
+    /// startup (`Player::unlock_audio`).
+    pub fn resume_audio(&mut self) {
+        let mut player = self.player.lock().unwrap();
+        player.unlock_audio();
     }
 
-    /// `AudioContext.state` ("suspended" / "running" / "closed") for debugging.
+    /// `AudioContext.state` ("not-started" / "suspended" / "running") for debugging.
     pub fn audio_state(&self) -> String {
-        self.audio_context
+        self.audio_handle
             .as_ref()
-            .map(|ctx| format!("{:?}", ctx.state()).to_lowercase())
+            .map(AudioHandle::state)
             .unwrap_or_else(|| "none".to_string())
     }
 
     /// `AudioContext.currentTime`, for smoke tests (advances only while running).
     pub fn audio_time(&self) -> f64 {
-        self.audio_context
+        self.audio_handle
             .as_ref()
-            .map(|ctx| ctx.current_time())
+            .map(AudioHandle::current_time)
             .unwrap_or(0.0)
     }
 

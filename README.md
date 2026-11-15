@@ -231,8 +231,9 @@ git tag v0.1.1 && git push origin v0.1.1
 
 ## Known limitations
 
-- **Web audio needs a click** — browsers start the `AudioContext` suspended, so
-  the first pointer/key event resumes it (autoplay policy).
+- **Web audio needs a click** — the `AudioContext` is created lazily on the
+  first pointer/key event. Safari refuses to play a context created outside a
+  gesture, so the backend defers initialization instead of resuming early.
 - **24 fps content** — see [High frame rate](#high-frame-rate); judder on 60 Hz
   displays is inherent to the source material.
 - **Multi-touch gestures** are not supported: Ruffle's event model only exposes

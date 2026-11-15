@@ -4,40 +4,67 @@
 //! clock; each `onended` refills and reschedules its buffer with freshly mixed
 //! samples. The adaptive buffer size logic is kept from upstream.
 //!
-//! Browsers start an `AudioContext` in the `suspended` state until a user
-//! gesture; the host exposes `resume_audio()` which JS calls on the first
-//! pointer/key event.
+//! **Browser autoplay policy.** Chrome can resume an `AudioContext` that was
+//! created before a gesture, but Safari requires the context to be *created*
+//! inside the gesture handler. This backend therefore starts lazily: it only
+//! builds the `AudioContext` when the host calls [`AudioBackend::unlock`] from
+//! a pointer/key event (`Player::unlock_audio`).
+
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
 
 use ruffle_core::backend::audio::{
     swf, AudioBackend, AudioMixer, AudioMixerProxy, DecodeError, RegisterError, SoundHandle,
     SoundInstanceHandle, SoundStreamInfo, SoundTransform,
 };
 use ruffle_core::impl_audio_mixer_backend;
-use std::cell::{Cell, RefCell};
-use std::rc::Rc;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::Duration;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 use wasm_bindgen::JsError;
-use web_sys::{AudioContext, AudioContextOptions, AudioScheduledSourceNode};
+use web_sys::{
+    AudioBuffer, AudioBufferSourceNode, AudioContext, AudioContextOptions, AudioScheduledSourceNode,
+};
 
-/// Small helper mirroring `ruffle_web_common::JsResult`.
-trait JsResult<T> {
-    fn into_js_result(self) -> Result<T, JsError>;
+/// The mixer always runs at 44.1 kHz; the `AudioBuffer` carries its own sample
+/// rate, so the browser resamples to the device rate if needed.
+const SAMPLE_RATE: f32 = 44_100.0;
+
+/// Shared with the host so it can report `state` / `currentTime` for debugging.
+#[derive(Clone, Default)]
+pub struct AudioHandle {
+    context: Rc<RefCell<Option<AudioContext>>>,
 }
 
-impl<T> JsResult<T> for Result<T, JsValue> {
-    fn into_js_result(self) -> Result<T, JsError> {
-        self.map_err(|e| {
-            let message = e.as_string().unwrap_or_else(|| format!("{e:?}"));
-            JsError::new(&message)
-        })
+impl AudioHandle {
+    pub fn state(&self) -> String {
+        match self.context.borrow().as_ref() {
+            Some(context) => format!("{:?}", context.state()).to_lowercase(),
+            None => "not-started".to_string(),
+        }
     }
+
+    pub fn current_time(&self) -> f64 {
+        self.context
+            .borrow()
+            .as_ref()
+            .map(|context| context.current_time())
+            .unwrap_or(0.0)
+    }
+}
+
+/// Highest absolute sample value seen since the last [`take_peak`] call.
+/// Used by the host's smoke-test hook to prove that audio is actually mixing.
+static PEAK_BITS: AtomicU32 = AtomicU32::new(0);
+
+pub fn take_peak() -> f32 {
+    f32::from_bits(PEAK_BITS.swap(0, Ordering::Relaxed))
 }
 
 pub struct WebAudioBackend {
     mixer: AudioMixer,
-    context: AudioContext,
+    handle: AudioHandle,
     /// The current length of both buffers, in frames (pairs of left/right samples).
     buffer_size: Rc<Cell<u32>>,
     buffers: Vec<Rc<RefCell<Buffer>>>,
@@ -67,43 +94,61 @@ impl WebAudioBackend {
     /// is increased immediately. Must be in 0..1, and greater than `2 * NORMAL_PROGRESS_RANGE_MIN`.
     const NORMAL_PROGRESS_RANGE_MAX: f64 = 0.75;
 
-    pub fn new() -> Result<Self, JsError> {
-        // Pin the AudioContext to 44.1 kHz. SWF audio sources top out at 44.1 kHz, so
-        // there's no fidelity to gain from running our pipeline at the device rate, and
-        // running at the device rate caused stutter at startup on high-rate devices
-        // (e.g. 192/384 kHz cards) because each buffer expired faster than the JS event
-        // loop could refill it. Per Web Audio §1.2.1, the user agent MUST resample on
-        // output if the requested rate differs from the device rate.
-        // See: https://www.w3.org/TR/webaudio-1.1/#AudioContext-constructors
-        let opts = AudioContextOptions::new();
-        opts.set_sample_rate(44_100.0);
-
-        let context = AudioContext::new_with_context_options(&opts).into_js_result()?;
-        let sample_rate = context.sample_rate();
-
-        let mut audio = Self {
-            context,
-            mixer: AudioMixer::new(2, sample_rate as u32),
+    pub fn new() -> Self {
+        Self {
+            mixer: AudioMixer::new(2, SAMPLE_RATE as u32),
+            handle: AudioHandle::default(),
             buffer_size: Rc::new(Cell::new(Self::INITIAL_BUFFER_SIZE)),
             buffers: Vec::with_capacity(2),
             time: Rc::new(Cell::new(0.0)),
             probation_elapsed: Rc::new(Cell::new(0.0)),
-        };
-
-        // Create and start the audio buffers.
-        // These buffers ping-pong as the audio stream plays.
-        for _ in 0..2 {
-            let buffer = Buffer::new(&audio)?;
-            buffer.borrow_mut().play()?;
-            audio.buffers.push(buffer);
         }
-
-        Ok(audio)
     }
 
-    /// Returns the JavaScript AudioContext.
-    pub fn audio_context(&self) -> &AudioContext {
-        &self.context
+    /// Handle for the host's `audio_state()` / `audio_time()` debugging hooks.
+    pub fn handle(&self) -> AudioHandle {
+        self.handle.clone()
+    }
+
+    /// Create the `AudioContext` and start the ping-pong buffers.
+    ///
+    /// Must run inside a user-gesture handler for Safari to allow playback.
+    fn ensure_started(&mut self) -> Result<(), JsError> {
+        if self.handle.context.borrow().is_some() {
+            return Ok(());
+        }
+
+        // Pin to 44.1 kHz when supported; WebAudio resamples to the device rate.
+        // Older Safari versions ignore/refuse the option, hence the fallback.
+        let opts = AudioContextOptions::new();
+        opts.set_sample_rate(SAMPLE_RATE);
+        let context = match AudioContext::new_with_context_options(&opts) {
+            Ok(context) => context,
+            Err(_) => AudioContext::new().map_err(js_error)?,
+        };
+        let _ = context.resume();
+
+        *self.handle.context.borrow_mut() = Some(context.clone());
+        self.time.set(context.current_time());
+
+        for _ in 0..2 {
+            let buffer = Buffer::new(
+                &context,
+                self.mixer.proxy(),
+                self.buffer_size.clone(),
+                self.time.clone(),
+                self.probation_elapsed.clone(),
+            )?;
+            buffer.borrow_mut().play()?;
+            self.buffers.push(buffer);
+        }
+        Ok(())
+    }
+}
+
+impl Default for WebAudioBackend {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -111,23 +156,37 @@ impl AudioBackend for WebAudioBackend {
     impl_audio_mixer_backend!(mixer);
 
     fn play(&mut self) {
-        let _ = self.context.resume();
+        // Do not create the context here: Ruffle calls `play()` on autoplay,
+        // before any user gesture. `unlock()` does the real initialization.
+        if let Some(context) = self.handle.context.borrow().as_ref() {
+            let _ = context.resume();
+        }
     }
 
     fn pause(&mut self) {
-        let _ = self.context.suspend();
+        if let Some(context) = self.handle.context.borrow().as_ref() {
+            let _ = context.suspend();
+        }
+    }
+
+    fn unlock(&mut self) {
+        if let Err(error) = self.ensure_started() {
+            tracing::warn!("webaudio: failed to start: {error:?}");
+        }
     }
 
     fn position_resolution(&self) -> Option<Duration> {
         Some(Duration::from_secs_f64(
-            f64::from(self.buffer_size.get()) / f64::from(self.context.sample_rate()),
+            f64::from(self.buffer_size.get()) / f64::from(SAMPLE_RATE),
         ))
     }
 }
 
 impl Drop for WebAudioBackend {
     fn drop(&mut self) {
-        let _ = self.context.close();
+        if let Some(context) = self.handle.context.borrow().as_ref() {
+            let _ = context.close();
+        }
     }
 }
 
@@ -136,29 +195,33 @@ struct Buffer {
     mixer_proxy: AudioMixerProxy,
     buffer_size: Rc<Cell<u32>>,
     audio_buffer: Vec<f32>,
-    js_buffer: web_sys::AudioBuffer,
-    audio_node: Option<web_sys::AudioBufferSourceNode>,
+    js_buffer: AudioBuffer,
+    audio_node: Option<AudioBufferSourceNode>,
     on_ended_handler: Closure<dyn FnMut()>,
     time: Rc<Cell<f64>>,
     probation_elapsed: Rc<Cell<f32>>,
 }
 
 impl Buffer {
-    fn new(audio: &WebAudioBackend) -> Result<Rc<RefCell<Self>>, JsError> {
-        let sample_rate = audio.context.sample_rate();
+    fn new(
+        context: &AudioContext,
+        mixer_proxy: AudioMixerProxy,
+        buffer_size: Rc<Cell<u32>>,
+        time: Rc<Cell<f64>>,
+        probation_elapsed: Rc<Cell<f32>>,
+    ) -> Result<Rc<RefCell<Self>>, JsError> {
         let buffer = Rc::new(RefCell::new(Self {
-            context: audio.context.clone(),
-            mixer_proxy: audio.mixer.proxy(),
-            buffer_size: audio.buffer_size.clone(),
+            context: context.clone(),
+            mixer_proxy,
+            buffer_size,
             audio_buffer: vec![0.0; 2 * WebAudioBackend::INITIAL_BUFFER_SIZE as usize],
-            js_buffer: audio
-                .context
-                .create_buffer(2, WebAudioBackend::INITIAL_BUFFER_SIZE, sample_rate)
-                .into_js_result()?,
+            js_buffer: context
+                .create_buffer(2, WebAudioBackend::INITIAL_BUFFER_SIZE, SAMPLE_RATE)
+                .map_err(js_error)?,
             audio_node: None,
             on_ended_handler: Closure::new(|| {}),
-            time: audio.time.clone(),
-            probation_elapsed: audio.probation_elapsed.clone(),
+            time,
+            probation_elapsed,
         }));
 
         // Swap in the onended handler.
@@ -173,8 +236,7 @@ impl Buffer {
 
     fn play(&mut self) -> Result<(), JsError> {
         let time_left = self.time.get() - self.context.current_time();
-        let mut buffer_timestep =
-            f64::from(self.buffer_size.get()) / f64::from(self.context.sample_rate());
+        let mut buffer_timestep = f64::from(self.buffer_size.get()) / f64::from(SAMPLE_RATE);
 
         // How far along the other buffer is in playing out right now:
         //  ~0: it has just started playing, we are well within time
@@ -235,12 +297,11 @@ impl Buffer {
         // we need to recaulculate/recreate/resize a couple of things that depend on it.
         if self.js_buffer.length() != self.buffer_size.get() {
             tracing::trace!("Recreating JS side buffer with new length");
-            buffer_timestep =
-                f64::from(self.buffer_size.get()) / f64::from(self.context.sample_rate());
+            buffer_timestep = f64::from(self.buffer_size.get()) / f64::from(SAMPLE_RATE);
             self.js_buffer = self
                 .context
-                .create_buffer(2, self.buffer_size.get(), self.context.sample_rate())
-                .into_js_result()?;
+                .create_buffer(2, self.buffer_size.get(), SAMPLE_RATE)
+                .map_err(js_error)?;
             self.audio_buffer
                 .resize(2 * self.buffer_size.get() as usize, 0.0);
         }
@@ -250,11 +311,11 @@ impl Buffer {
         copy_to_audio_buffer_interleaved(&self.js_buffer, &self.audio_buffer);
 
         // Create the audio node to play back the audio buffer.
-        let audio_node = self.context.create_buffer_source().into_js_result()?;
+        let audio_node = self.context.create_buffer_source().map_err(js_error)?;
         audio_node.set_buffer(Some(&self.js_buffer));
         audio_node
             .connect_with_audio_node(&self.context.destination())
-            .into_js_result()?;
+            .map_err(js_error)?;
         let scheduled: &AudioScheduledSourceNode = &audio_node;
         scheduled.set_onended(Some(self.on_ended_handler.as_ref().unchecked_ref()));
 
@@ -265,7 +326,7 @@ impl Buffer {
         // Schedule this buffer for playback and advance the player time.
         audio_node
             .start_with_when(self.time.get())
-            .into_js_result()?;
+            .map_err(js_error)?;
         self.time.set(self.time.get() + buffer_timestep);
 
         self.audio_node = Some(audio_node);
@@ -282,29 +343,48 @@ impl Drop for Buffer {
     }
 }
 
-/// Highest absolute sample value seen since the last [`take_peak`] call.
-/// Used by the host's smoke-test hook to prove that audio is actually mixing.
-static PEAK_BITS: AtomicU32 = AtomicU32::new(0);
-
-pub fn take_peak() -> f32 {
-    f32::from_bits(PEAK_BITS.swap(0, Ordering::Relaxed))
-}
-
 /// Copy interleaved stereo samples into the two channels of an `AudioBuffer`.
-fn copy_to_audio_buffer_interleaved(audio_buffer: &web_sys::AudioBuffer, interleaved_data: &[f32]) {
+///
+/// Uses `getChannelData` rather than `copyToChannel`: older Safari versions had
+/// a broken `copyToChannel`, while `getChannelData` is universally supported.
+fn copy_to_audio_buffer_interleaved(audio_buffer: &AudioBuffer, interleaved_data: &[f32]) {
     let frames = audio_buffer.length() as usize;
-    let mut left = vec![0.0f32; frames];
-    let mut right = vec![0.0f32; frames];
-    for i in 0..frames {
-        left[i] = interleaved_data[2 * i];
-        right[i] = interleaved_data[2 * i + 1];
-    }
     let peak = interleaved_data
         .iter()
         .fold(0.0f32, |acc, sample| acc.max(sample.abs()));
     if peak > take_peak() {
         PEAK_BITS.store(peak.to_bits(), Ordering::Relaxed);
     }
-    let _ = audio_buffer.copy_to_channel(&left, 0);
-    let _ = audio_buffer.copy_to_channel(&right, 1);
+
+    for channel in 0..2u32 {
+        let mut samples = vec![0.0f32; frames];
+        for (i, sample) in samples.iter_mut().enumerate() {
+            *sample = interleaved_data[2 * i + channel as usize];
+        }
+        if let Some(data) = channel_data(audio_buffer, channel) {
+            data.copy_from(&samples);
+        } else {
+            // Fallback for engines where the raw object access fails.
+            let _ = audio_buffer.copy_to_channel(&samples, channel as i32);
+        }
+    }
+}
+
+/// `AudioBuffer.getChannelData(channel)` as a writable `Float32Array`.
+///
+/// web-sys models this method as returning a copied `Vec<f32>`, so go through
+/// `Reflect` to get the live array view instead.
+fn channel_data(buffer: &AudioBuffer, channel: u32) -> Option<js_sys::Float32Array> {
+    let function =
+        js_sys::Reflect::get(buffer.as_ref(), &JsValue::from_str("getChannelData")).ok()?;
+    let function: js_sys::Function = function.dyn_into().ok()?;
+    let array = function
+        .call1(buffer.as_ref(), &JsValue::from_f64(f64::from(channel)))
+        .ok()?;
+    array.dyn_into().ok()
+}
+
+fn js_error(error: JsValue) -> JsError {
+    let message = error.as_string().unwrap_or_else(|| format!("{error:?}"));
+    JsError::new(&message)
 }

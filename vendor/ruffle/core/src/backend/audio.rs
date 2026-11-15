@@ -98,6 +98,13 @@ pub trait AudioBackend: Any {
     fn play(&mut self);
     fn pause(&mut self);
 
+    /// Called after a user gesture.
+    ///
+    /// Browser audio backends may need to create their `AudioContext` inside
+    /// the gesture handler (Safari refuses to start a context created outside
+    /// one), so they defer initialization until this is called.
+    fn unlock(&mut self) {}
+
     /// Registers an sound embedded in an SWF.
     fn register_sound(&mut self, swf_sound: &swf::Sound) -> Result<SoundHandle, RegisterError>;
 

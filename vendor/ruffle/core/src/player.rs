@@ -935,6 +935,14 @@ impl Player {
         self.run_state = state;
     }
 
+    /// Notify the audio backend that a user gesture happened (web autoplay
+    /// policies, especially Safari, require the `AudioContext` to be created
+    /// inside a gesture).
+    pub fn unlock_audio(&mut self) {
+        self.audio.unlock();
+        self.audio.play();
+    }
+
     pub fn set_is_playing(&mut self, v: bool) {
         self.set_run_state(if v {
             RunState::Playing
