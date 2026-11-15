@@ -33,7 +33,8 @@ async function main() {
   const quality = params.get("quality") || null;
   const alwaysRender = params.get("alwaysRender") === "1";
   const frameRate = params.get("frameRate") ? Number(params.get("frameRate")) : null;
-  const host = await bindings.TinyThiefHost.create(canvas, assets, quality, alwaysRender, frameRate);
+  const mute = params.get("mute") === "1";
+  const host = await bindings.TinyThiefHost.create(canvas, assets, quality, alwaysRender, frameRate, mute);
   loading.remove();
 
   // `?warmup=N` advances N frames before the first paint (used for screenshots
@@ -44,6 +45,11 @@ async function main() {
     // Yield so Ruffle's asset-loading futures can run between frames.
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
+
+  // Browsers keep the AudioContext suspended until a user gesture.
+  const unlockAudio = () => host.resume_audio();
+  canvas.addEventListener("pointerdown", unlockAudio, { once: true });
+  window.addEventListener("keydown", unlockAudio, { once: true });
 
   // Input: pointer events cover mouse + touch.
   canvas.addEventListener("pointermove", (e) => {
@@ -69,7 +75,10 @@ async function main() {
   document.addEventListener("visibilitychange", () => {
     const hidden = document.visibilityState === "hidden";
     host.set_paused(hidden);
-    if (!hidden) last = performance.now();
+    if (!hidden) {
+      last = performance.now();
+      host.resume_audio();
+    }
   });
 
   // Frame-time statistics (p50/p95 + effective fps), readable from the console
@@ -89,6 +98,7 @@ async function main() {
   };
 
   window.__ttCanvas = () => canvas.toDataURL("image/png");
+  window.__ttAudio = () => ({ state: host.audio_state(), time: host.audio_time(), peak: host.audio_peak() });
 
   window.__ttCounts = () => ({
     ticks: host.tick_count(),

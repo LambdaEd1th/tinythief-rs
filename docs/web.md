@@ -13,6 +13,7 @@ Ruffle 通过 wgpu 的 **WebGL** 后端渲染到 `<canvas>`。原生宿主与 we
       ├─ WgpuRenderBackend::for_canvas(canvas, webgl)      // vendored Ruffle
       ├─ WebNavigator.load_movie("TinyThief.swf")          // fetch + AES 解密
       ├─ IdbStorage (IndexedDB, localStorage fallback)      // SharedObject 持久化
+      ├─ WebAudioBackend                                    // 双 AudioBuffer 轮转播放
       ├─ WebLocale                                         // 时间/时区来自 JS Date
       └─ PlayerBuilder + tt_bridge::Bridge                 // 4 个原生接口 + 免费内购
   → requestAnimationFrame 循环：host.tick(dt)
@@ -64,6 +65,22 @@ python3 scripts/web_smoke.py --url http://127.0.0.1:8080/ \
 
 同一个 `--profile` 跑第二次会带出上次写入的存档（`indexeddb_keys=3`），
 这就是持久化的直接证据。
+
+## 音频
+
+Web 端用 `crates/tt-web/src/audio.rs`（移植自 Ruffle `web/src/audio.rs`）：
+
+- 双 `AudioBufferSourceNode` 轮转，`onended` 时重新混音并排期；自适应缓冲
+  （1024–16384 帧）沿用上游逻辑；
+- 浏览器要求用户手势后才能出声：`main.js` 在第一次 `pointerdown`/`keydown`
+  时调用 `host.resume_audio()`（`AudioContext.resume()`），切回标签页时也会 resume；
+- 首次点击前 `AudioContext.state === "suspended"`，之后变 `"running"`；
+- 调试钩子：`__ttAudio()` 返回 `{state, time, peak}`，`peak` 是上次调用以来
+  混音缓冲的最大绝对值（0 表示静音），可用于无头验证；
+- `?mute=1` 可切回 `NullAudioBackend`。
+
+实测（headless Chrome + SwiftShader，教学关）：开音频 58.1 fps / 静音 56.5 fps，
+在噪声范围内；`peak` 在菜单/关卡里均为非零，说明确实在混音。
 
 ## 性能
 
@@ -170,6 +187,6 @@ Rovio Stars 开屏。也可以加 `--enable-logging=stderr --v=0` 抓 `tracing` 
 
 ## 后续可做
 
-1. WebAudio 音频后端（移植 Ruffle `web/src/audio.rs`，约 280 行）。
+1. 音频方面可做：主音量/静音按钮、`AudioContext` 设备切换（`setSinkId`）。
 2. 首屏 Loading 进度条（wasm 9.7 MB + 启动 SWF 2 MB）。
 3. 用 `?warmup` + 截图做 web 端的 golden-image 回归。

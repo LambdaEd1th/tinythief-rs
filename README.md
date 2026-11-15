@@ -96,6 +96,7 @@ Web query parameters:
 | `?quality=low\|medium\|high` | Rendering quality (`low` is ~40% cheaper on CPU) |
 | `?frameRate=N` | Override the SWF frame rate — this is a speed multiplier, not a high-FPS mode |
 | `?assets=<base-url>` | Load assets from elsewhere (CORS required) |
+| `?mute=1` | Disable audio (`NullAudioBackend`) |
 | `?warmup=N` | Advance N frames before the first paint (screenshots/smoke tests) |
 | `?alwaysRender=1` | Disable render-on-demand (profiling only) |
 
@@ -126,7 +127,7 @@ scripts/        acceptance test, web build, asset preparation, web smoke test
   (Ruffle AVM2) ◄─┤ tt-bridge   ExternalInterface, free purchases│
                   └───────────────┬──────────────────────────────┘
                                   ▼
-  native: winit + wgpu + cpal      web: canvas + WebGL + WebAudio(future)
+  native: winit + wgpu + cpal      web: canvas + WebGL + WebAudio
   saves: .sol on disk              saves: IndexedDB
 ```
 
@@ -157,7 +158,7 @@ scripts/        acceptance test, web build, asset preparation, web smoke test
 |---|---|---|
 | Boot to interactive menu | ✅ | ✅ |
 | Scripted playthrough (menu → comic → level card → gameplay) | ✅ | ✅ |
-| Audio (FMOD MP3 tracks) | ✅ cpal backend | ❌ silent (`NullAudioBackend`) |
+| Audio (FMOD MP3 tracks) | ✅ cpal backend | ✅ WebAudio backend |
 | Saves (`SharedObject`) | ✅ `.sol` files | ✅ IndexedDB |
 | Free in-app purchases | ✅ | ✅ |
 | `onPaused` / `onResumed` lifecycle hooks | ✅ | ✅ |
@@ -230,8 +231,8 @@ git tag v0.1.1 && git push origin v0.1.1
 
 ## Known limitations
 
-- **Web audio is silent** — the web host uses `NullAudioBackend`. Porting
-  Ruffle's WebAudio backend (~280 lines) is the next planned improvement.
+- **Web audio needs a click** — browsers start the `AudioContext` suspended, so
+  the first pointer/key event resumes it (autoplay policy).
 - **24 fps content** — see [High frame rate](#high-frame-rate); judder on 60 Hz
   displays is inherent to the source material.
 - **Multi-touch gestures** are not supported: Ruffle's event model only exposes

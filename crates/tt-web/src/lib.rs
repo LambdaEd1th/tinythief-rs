@@ -7,6 +7,7 @@
 //! Assets are fetched over HTTP and decrypted in memory (`tt-assets`), so the
 //! encrypted app bundle can be served as static files (e.g. GitHub Pages).
 
+mod audio;
 mod idb;
 mod locale;
 mod navigator;
@@ -14,7 +15,6 @@ mod storage;
 
 use std::sync::{Arc, Mutex};
 
-use ruffle_core::backend::audio::NullAudioBackend;
 use ruffle_core::backend::navigator::OwnedFuture;
 use ruffle_core::backend::ui::NullUiBackend;
 use ruffle_core::config::Letterbox;
@@ -32,6 +32,7 @@ use tt_bridge::Bridge;
 
 use crate::locale::WebLocale;
 
+use crate::audio::WebAudioBackend;
 use crate::idb::IdbStorage;
 use crate::navigator::WebNavigator;
 use crate::storage::LocalStorageBackend;
@@ -42,14 +43,36 @@ const STAGE_HEIGHT: u32 = 768;
 #[wasm_bindgen(start)]
 pub fn start() {
     console_error_panic_hook::set_once();
-    let _ = tracing_wasm::try_set_as_global_default();
+
+    // Keep the console quiet by default; `?log=debug` / `?log=trace` opt in.
+    let level = web_sys::window()
+        .and_then(|w| w.location().search().ok())
+        .map(|search| match log_level_param(&search) {
+            Some("trace") => tracing::Level::TRACE,
+            Some("debug") => tracing::Level::DEBUG,
+            _ => tracing::Level::INFO,
+        })
+        .unwrap_or(tracing::Level::INFO);
+    tracing_wasm::set_as_global_default_with_config(
+        tracing_wasm::WASMLayerConfigBuilder::new()
+            .set_max_level(level)
+            .build(),
+    );
     tracing::info!("tt-web booted");
+}
+
+fn log_level_param(search: &str) -> Option<&str> {
+    search
+        .trim_start_matches('?')
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("log="))
 }
 
 /// Owns the player; created from JS with [`TinyThiefHost::create`].
 #[wasm_bindgen]
 pub struct TinyThiefHost {
     player: Arc<Mutex<Player>>,
+    audio_context: Option<web_sys::AudioContext>,
     outbox: tt_bridge::Outbox,
     paused: bool,
     started: bool,
@@ -71,7 +94,9 @@ impl TinyThiefHost {
         quality: Option<String>,
         always_render: Option<bool>,
         frame_rate: Option<f64>,
+        mute: Option<bool>,
     ) -> Result<TinyThiefHost, JsValue> {
+        let mute = mute.unwrap_or(false);
         let quality = quality.as_deref().map(parse_quality).unwrap_or_default();
         let always_render = always_render.unwrap_or(false);
         console_error_panic_hook::set_once();
@@ -84,6 +109,17 @@ impl TinyThiefHost {
             .map_err(|e| JsValue::from_str(&format!("webgl renderer: {e}")))?;
 
         let navigator = WebNavigator::new(base_url);
+
+        // Browsers create the context suspended; JS calls `resume_audio()` on the
+        // first pointer/key event to satisfy the autoplay policy.
+        let (audio_backend, audio_context) = if mute {
+            (None, None)
+        } else {
+            let backend = WebAudioBackend::new()
+                .map_err(|e| JsValue::from_str(&format!("webaudio: {e:?}")))?;
+            let context = backend.audio_context().clone();
+            (Some(backend), Some(context))
+        };
         let (swf, url) = navigator
             .load_movie("TinyThief.swf")
             .await
@@ -120,7 +156,10 @@ impl TinyThiefHost {
             .with_movie(movie)
             .with_renderer(renderer)
             .with_navigator(navigator)
-            .with_audio(NullAudioBackend::new())
+            .with_boxed_audio(match audio_backend {
+                Some(backend) => Box::new(backend),
+                None => Box::new(ruffle_core::backend::audio::NullAudioBackend::new()),
+            })
             .with_ui(NullUiBackend::new())
             .with_locale(WebLocale)
             .with_external_interface(Box::new(Bridge::with_outbox(
@@ -155,6 +194,7 @@ impl TinyThiefHost {
 
         let host = TinyThiefHost {
             player,
+            audio_context,
             outbox,
             paused: false,
             started: false,
@@ -198,6 +238,37 @@ impl TinyThiefHost {
 
     pub fn is_started(&self) -> bool {
         self.started
+    }
+
+    /// Resume the `AudioContext` after a user gesture (autoplay policy).
+    pub fn resume_audio(&self) {
+        if let Some(ctx) = &self.audio_context {
+            match ctx.resume() {
+                Ok(_) => tracing::info!("audio context resumed"),
+                Err(e) => tracing::warn!("audio resume failed: {e:?}"),
+            }
+        }
+    }
+
+    /// `AudioContext.state` ("suspended" / "running" / "closed") for debugging.
+    pub fn audio_state(&self) -> String {
+        self.audio_context
+            .as_ref()
+            .map(|ctx| format!("{:?}", ctx.state()).to_lowercase())
+            .unwrap_or_else(|| "none".to_string())
+    }
+
+    /// `AudioContext.currentTime`, for smoke tests (advances only while running).
+    pub fn audio_time(&self) -> f64 {
+        self.audio_context
+            .as_ref()
+            .map(|ctx| ctx.current_time())
+            .unwrap_or(0.0)
+    }
+
+    /// Peak sample amplitude mixed since the previous call (0.0 = silence).
+    pub fn audio_peak(&self) -> f64 {
+        f64::from(crate::audio::take_peak())
     }
 
     /// Number of `tick()` calls since startup (for profiling).
