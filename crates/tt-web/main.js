@@ -25,6 +25,21 @@ function prefetch(path) {
   // other engines ignore the option.
   fetch(ASSET_BASE + path, { cache: "default", priority: "low" }).catch(() => {});
 }
+// Service worker: caches the wasm bundle and game assets so repeat visits do
+// not re-download them. `?sw=0` disables it (useful for cache debugging).
+const swEnabled =
+  "serviceWorker" in navigator &&
+  location.protocol !== "file:" &&
+  new URLSearchParams(location.search).get("sw") !== "0";
+if (swEnabled) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+} else if ("serviceWorker" in navigator) {
+  navigator.serviceWorker
+    .getRegistrations()
+    .then((registrations) => registrations.forEach((registration) => registration.unregister()))
+    .catch(() => {});
+}
+
 const saveData = navigator.connection && navigator.connection.saveData;
 const prefetchEnabled = !saveData && new URLSearchParams(location.search).get("prefetch") !== "0";
 if (prefetchEnabled) {

@@ -114,9 +114,27 @@ web 比 native 慢的部分几乎全是**网络传输**，不是解密或渲染�
 native 侧同一阶段实测：renderer 39 ms、启动 SWF 读取+解密 28 ms、解析 9 ms、
 player ready 176 ms——所以宿主初始化只比 web 快 ~30 ms，剩下全是下载时间。
 
-优化：页面会以低优先级在后台预取稍后才用的资源（splash/menu/theme 等约 3.6 MB），
+优化一：页面会以低优先级在后台预取稍后才用的资源（splash/menu/theme 等约 3.6 MB），
 把下载藏进开屏动画里；`?prefetch=0` 或浏览器 Save-Data 时关闭。
 5 Mbps 限速实测：菜单就绪从 29.8 s 降到 27.7 s。
+
+优化二：Service Worker（`crates/tt-web/sw.js`）缓存 shell（index/main.js/带哈希的
+wasm）和所有 `assets/` 请求。缓存名由 wasm 内容哈希派生，新版本部署后自动建新缓存、
+删旧缓存：
+
+- 导航：network-first，失败回退缓存（离线可启动）；
+- `main.js`：stale-while-revalidate；
+- `assets/*` 与哈希化的 js/wasm：cache-first。
+
+实测（5 Mbps 限速 + 清空 HTTP 缓存，同一 profile 二次访问）：
+
+```
+no-sw   menu.swf=27613ms   wasm=18482ms
+sw      menu.swf= 5042ms   wasm=   26ms   ← 全部来自 Cache Storage
+```
+
+离线（CDP offline）二次启动同样能到菜单（`player ready=True`，菜单 5.0 s）。
+`?sw=0` 会注销 Service Worker，便于调试缓存。
 
 ## 性能
 

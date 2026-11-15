@@ -97,6 +97,7 @@ Web query parameters:
 | `?frameRate=N` | Override the SWF frame rate — this is a speed multiplier, not a high-FPS mode |
 | `?assets=<base-url>` | Load assets from elsewhere (CORS required) |
 | `?prefetch=0` | Disable background prefetching of boot assets |
+| `?sw=0` | Unregister the service worker (cache debugging) |
 | `?mute=1` | Disable audio (`NullAudioBackend`) |
 | `?warmup=N` | Advance N frames before the first paint (screenshots/smoke tests) |
 | `?alwaysRender=1` | Disable render-on-demand (profiling only) |
@@ -188,6 +189,12 @@ To hide the network behind the logo animation, the web page prefetches the
 assets the game will ask for later (menu/splash/theme, ~3.6 MB) in the
 background with low fetch priority; `?prefetch=0` or Save-Data disables it.
 Under a simulated 5 Mbps link this moved "menu ready" from 29.8 s to 27.7 s.
+
+A service worker caches the shell (index/main.js/hashed wasm) and every game
+asset it sees. Cache names are derived from the wasm content hash, so a new
+deployment replaces the old cache automatically. With the HTTP cache cleared
+and a 5 Mbps link, a repeat visit reaches the menu in **5.0 s** (the logo
+animation only) instead of **27.6 s**, and the game boots offline once cached.
 
 ## Performance
 
