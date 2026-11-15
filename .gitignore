@@ -6,3 +6,4 @@
 /tools/bin
 .DS_Store
 __pycache__/
+/crates/tt-web/assets

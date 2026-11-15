@@ -236,7 +236,7 @@ Rovio Stars 开屏。也可以加 `--enable-logging=stderr --v=0` 抓 `tracing` 
 3. 上传 `crates/tt-web/dist` 并 `deploy-pages`。
 
 资产（59 MB）默认在 `.gitignore` 里。要发布完整可玩的站点，需要把
-`crates/tt-web/assets/` 提交进仓库（或改成从带 CORS 的对象存储加载，
+`assets/` 目录提交进仓库（或改成从带 CORS 的对象存储加载，
 页面支持 `?assets=<base-url>`）。版权归 Rovio，公开部署前请确认授权。
 
 ## 后续可做

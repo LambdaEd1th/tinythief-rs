@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Copy the (encrypted) Tiny Thief app bundle into the web crate for static hosting.
+# Copy the (encrypted) Tiny Thief app bundle into the repository's shared
+# `assets/` directory (used by both the native and the web host).
 #
 #   scripts/prepare_web_assets.sh [path/to/TinyThief.app]
 #
@@ -12,7 +13,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP="${1:-../TinyThief.app}"
-DEST="crates/tt-web/assets"
+DEST="assets"
 
 [ -f "$APP/TinyThief.swf" ] || { echo "no TinyThief.app at $APP" >&2; exit 1; }
 

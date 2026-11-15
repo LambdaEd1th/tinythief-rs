@@ -32,9 +32,7 @@ jobs:
           tool: trunk
 
       - name: Build web bundle
-        run: |
-          cd crates/tt-web
-          trunk build --release --public-url "/${{ github.event.repository.name }}/"
+        run: scripts/build_web.sh --public-url "/${{ github.event.repository.name }}/"
 
       - uses: actions/upload-pages-artifact@v3
         with:

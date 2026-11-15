@@ -17,7 +17,12 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-[ -d crates/tt-web/assets ] || scripts/prepare_web_assets.sh
+[ -d assets ] || scripts/prepare_web_assets.sh
+
+# Trunk can only copy directories below the crate root; stage the shared
+# `assets/` tree inside the web crate (gitignored) before building.
+rm -rf crates/tt-web/assets
+cp -R assets crates/tt-web/assets
 
 # Trunk needs a wasm-bindgen CLI matching the crate version (0.2.128 here).
 # Locally we keep one in tools/bin; in CI trunk downloads the matching version.

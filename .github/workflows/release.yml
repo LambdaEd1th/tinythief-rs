@@ -58,6 +58,9 @@ jobs:
           mkdir -p bundle
           cp "target/${{ matrix.target }}/release/$bin" bundle/
           cp README.md NOTICE.md LICENSE-MIT LICENSE-APACHE bundle/
+          # Self-contained package: the encrypted game assets that the host
+          # expects next to the binary (or pass their path as argv[1]).
+          cp -R assets bundle/assets
           tar -czf "${{ matrix.name }}.tar.gz" -C bundle .
 
       - uses: actions/upload-artifact@v4

@@ -2,7 +2,7 @@
 
 ## Tiny Thief assets
 
-`crates/tt-web/assets/` contains the Tiny Thief game content (SWF, XML, MP3) in the
+`assets/` contains the Tiny Thief game content (SWF, XML, MP3) in the
 same AES-256-CBC encrypted form as the iOS app bundle. **All rights to Tiny Thief
 belong to Rovio Entertainment Ltd.** The assets are included solely for technical
 research and personal preservation of an application that is no longer distributed.

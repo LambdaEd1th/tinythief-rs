@@ -37,12 +37,12 @@ level assets are fetched on demand. Saves live in IndexedDB (with a
 
 ```bash
 # macOS / Linux / Windows, stable Rust
-cargo run --release -p tt-host -- crates/tt-web/assets
+cargo run --release -p tt-host -- assets
 ```
 
-`crates/tt-web/assets` is a complete (encrypted) game bundle, so no separate
-copy of the app is needed. You can also point the host at an original
-`TinyThief.app`:
+`assets/` is a complete (encrypted) game bundle, shared by the native and web
+hosts, so no separate copy of the app is needed. You can also point the host at
+an original `TinyThief.app`:
 
 ```bash
 cargo run --release -p tt-host -- /path/to/TinyThief.app
@@ -58,7 +58,7 @@ CLI options:
 
 | Flag | Description |
 |---|---|
-| `<bundle>` | Path to the app bundle (`TinyThief.app` or `crates/tt-web/assets`) |
+| `<bundle>` | Path to the app bundle (`TinyThief.app` or the in-repo `assets/`) |
 | `[boot movie]` | Movie to boot, default `TinyThief.swf` |
 | `--capture <png> --frames N` | Headless: render N frames and write a PNG |
 | `--click x,y@frame` | Headless: synthetic click at a frame (repeatable) |
@@ -85,8 +85,10 @@ For a GitHub Pages project site pass the repository prefix:
 scripts/build_web.sh --public-url /tinythief-rs/
 ```
 
-`trunk` downloads the matching `wasm-bindgen` automatically. If you want to
-replace the bundled assets with your own copy of the app, run
+`scripts/build_web.sh` stages the shared `assets/` tree into the web crate
+(trunk can only copy directories below the crate root) and `trunk` downloads
+the matching `wasm-bindgen` automatically. To replace the bundled assets with
+your own copy of the app, run
 `scripts/prepare_web_assets.sh /path/to/TinyThief.app` first.
 
 Web query parameters:
@@ -105,6 +107,7 @@ Web query parameters:
 ## Repository layout
 
 ```
+assets/         encrypted game bundle (SWF/XML/MP3), shared by native + web
 crates/
   tt-assets/    AES-256-CBC bundle reader; decrypts SWF/XML in memory
   tt-platform/  traits for the 4 native interfaces (29 functions) + null backends
