@@ -2,7 +2,8 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    # Version-only tags, e.g. `0.1.0` (no leading `v`).
+    tags: ["[0-9]*"]
   workflow_dispatch:
 
 permissions:
@@ -69,7 +70,7 @@ jobs:
           path: ${{ matrix.name }}.tar.gz
 
   web:
-    name: tinythief-web
+    name: tinythief-wasm32-unknown-unknown
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,12 +90,12 @@ jobs:
 
       - name: Package
         shell: bash
-        run: tar -czf tinythief-web.tar.gz -C crates/tt-web dist
+        run: tar -czf tinythief-wasm32-unknown-unknown.tar.gz -C crates/tt-web dist
 
       - uses: actions/upload-artifact@v4
         with:
-          name: tinythief-web
-          path: tinythief-web.tar.gz
+          name: tinythief-wasm32-unknown-unknown
+          path: tinythief-wasm32-unknown-unknown.tar.gz
 
   release:
     name: publish
