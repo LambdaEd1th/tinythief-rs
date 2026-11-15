@@ -9,6 +9,7 @@
 native（winit + wgpu）和 WebAssembly（trunk + WebGL）。
 
 > 在线试玩：<https://lambdaed1th.github.io/tinythief-rs/>
+> 预编译包（Linux / Windows / macOS arm64 / macOS x86_64 / web）：<https://github.com/LambdaEd1th/tinythief-rs/releases>
 > 背景与可行性分析见 [`docs/rust-host-feasibility.md`](docs/rust-host-feasibility.md)，
 > 二进制逆向细节见 [`docs/TinyThief-architecture.md`](docs/TinyThief-architecture.md)。
 
