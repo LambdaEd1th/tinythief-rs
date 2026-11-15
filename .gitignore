@@ -5,3 +5,4 @@
 /crates/tt-web/dist
 /tools/bin
 .DS_Store
+__pycache__/
