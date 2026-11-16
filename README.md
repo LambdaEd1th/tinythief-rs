@@ -254,7 +254,7 @@ The web smoke test drives a real-time headless Chrome via CDP (Chrome's
 |---|---|---|
 | `ci.yml` | push to `main`, PRs | `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace`, wasm check |
 | `pages.yml` | push to `main` | builds the wasm bundle and deploys it to GitHub Pages |
-| `release.yml` | manual (`workflow_dispatch`) | builds macOS arm64, Windows/Linux arm64 + x86_64 binaries plus a self-contained web bundle, and publishes a GitHub Release |
+| `release.yml` | tag `v*` (or manual) | builds macOS arm64, Windows/Linux arm64 + x86_64 binaries plus a self-contained web bundle, and publishes a GitHub Release |
 
 Each GitHub Release contains five self-contained native packages
 (`tinythief-<target>.tar.gz`, assets included) and
@@ -266,8 +266,13 @@ tar xzf tinythief-wasm32-unknown-unknown.tar.gz
 cd dist && python3 -m http.server 8080   # http://127.0.0.1:8080/
 ```
 
-Releases are published manually: pushing a tag no longer triggers the workflow.
-To publish, run the `Release` workflow from the desired tag
+Pushing a `v*` tag publishes a release automatically:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+You can also run the `Release` workflow manually from a tag ref
 (`gh workflow run release.yml --ref v0.1.0`).
 
 ## Known limitations
