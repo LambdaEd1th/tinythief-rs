@@ -1,8 +1,8 @@
 name: Release
 
+# Releases are paused at the project owner's request: pushing tags no longer
+# publishes. Run this workflow manually (from a tag ref) when needed.
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
