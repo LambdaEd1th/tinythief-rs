@@ -266,10 +266,10 @@ tar xzf tinythief-wasm32-unknown-unknown.tar.gz
 cd dist && python3 -m http.server 8080   # http://127.0.0.1:8080/
 ```
 
-Tags are version-only (no leading `v`):
+Create a release with:
 
 ```bash
-git tag 0.1.0 && git push origin 0.1.0
+git tag v0.1.0 && git push origin v0.1.0
 ```
 
 ## Known limitations

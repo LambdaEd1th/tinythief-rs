@@ -2,8 +2,7 @@ name: Release
 
 on:
   push:
-    # Version-only tags, e.g. `0.1.0` (no leading `v`).
-    tags: ["[0-9]*"]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
