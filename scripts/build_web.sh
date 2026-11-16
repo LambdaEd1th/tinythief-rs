@@ -24,9 +24,8 @@ done
 rm -rf crates/tt-web/assets
 cp -R assets crates/tt-web/assets
 
-# Trunk needs a wasm-bindgen CLI matching the crate version (0.2.128 here).
-# Locally we keep one in tools/bin; in CI trunk downloads the matching version.
-[ -d tools/bin ] && export PATH="$PWD/tools/bin:$PATH"
+# Trunk downloads a wasm-bindgen CLI matching the crate version automatically;
+# no local toolchain copy is needed (CI does the same).
 cd crates/tt-web
 env -u NO_COLOR trunk build ${PROFILE} ${PUBLIC_URL:-}
 echo "web build: $(du -sh dist | cut -f1) in crates/tt-web/dist"

@@ -11,7 +11,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
+use aes::cipher::{block_padding::Pkcs7, BlockModeDecrypt, KeyIvInit};
 use thiserror::Error;
 
 /// 32-byte content key recovered from the native binary (`0x504550`).
@@ -60,7 +60,7 @@ pub fn decrypt_raw(data: &[u8]) -> Result<Vec<u8>, AssetError> {
     }
     let mut buf = data.to_vec();
     let plain = Aes256CbcDec::new(CONTENT_KEY.into(), &[0u8; 16].into())
-        .decrypt_padded_mut::<Pkcs7>(&mut buf)
+        .decrypt_padded::<Pkcs7>(&mut buf)
         .map_err(|e| AssetError::Decrypt(format!("{e:?}")))?;
     Ok(plain.to_vec())
 }
@@ -73,15 +73,14 @@ pub fn decrypt(data: &[u8]) -> Result<Vec<u8>, AssetError> {
         return Err(AssetError::BadLength(data.len()));
     }
     let mut buf = data.to_vec();
-    match Aes256CbcDec::new(CONTENT_KEY.into(), &[0u8; 16].into())
-        .decrypt_padded_mut::<Pkcs7>(&mut buf)
+    match Aes256CbcDec::new(CONTENT_KEY.into(), &[0u8; 16].into()).decrypt_padded::<Pkcs7>(&mut buf)
     {
         Ok(plain) => Ok(plain.to_vec()),
         Err(_) => {
             // No valid padding: decrypt without stripping.
             let mut buf = data.to_vec();
             Ok(Aes256CbcDec::new(CONTENT_KEY.into(), &[0u8; 16].into())
-                .decrypt_padded_mut::<cbc::cipher::block_padding::NoPadding>(&mut buf)
+                .decrypt_padded::<cbc::cipher::block_padding::NoPadding>(&mut buf)
                 .map_err(|e| AssetError::Decrypt(format!("{e:?}")))?
                 .to_vec())
         }
